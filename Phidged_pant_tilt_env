@@ -1,0 +1,175 @@
+from Phidget22.Phidget import *
+from Phidget22.Net import *
+from Phidget22.Devices.BLDCMotor import *
+import time
+from Phidget22.Devices.Spatial import *
+import threading
+from collections import deque
+import time
+import random
+
+
+class Env:
+    def __init__(self):
+        
+
+        
+        self.ref_pitch = random.randint(-30, 30)
+        self.ref_heading = random.randint(-100, 100)
+        
+        
+        Net.enableServerDiscovery(PhidgetServerType.PHIDGETSERVER_DEVICEREMOTE)
+        
+        self.bldcMotor0 = BLDCMotor()
+        self.bldcMotor0.setHubPort(3)
+        self.bldcMotor0.setIsRemote(True)
+
+        self.bldcMotor1 = BLDCMotor()
+        self.bldcMotor1.setHubPort(5)
+        self.bldcMotor1.setIsRemote(True)
+        
+        self.spatial0 = Spatial()
+        
+        self.spatial0.setOnAlgorithmDataHandler(self.onAlgorithmData)
+        
+
+        self.bldcMotor0.openWaitForAttachment(5000)
+        self.bldcMotor1.openWaitForAttachment(5000)
+        
+        self.t = threading.Thread(target=self.run_on_thread)
+        self.t.start()
+        
+        time.sleep(5)
+
+        
+    def onAlgorithmData(self,spatial0, quaternion, timestamp):
+        #IMU
+        eulerAngles = spatial0.getEulerAngles()
+        
+        self.pitch = eulerAngles.pitch
+        self.roll = eulerAngles.roll
+        self.heading = eulerAngles.heading
+
+    def run_on_thread(self):
+        Net.enableServerDiscovery(PhidgetServerType.PHIDGETSERVER_DEVICEREMOTE)
+
+        # Create a new spatial object
+        spatial0 = Spatial()
+        
+        spatial0.setOnAlgorithmDataHandler(self.onAlgorithmData)
+        
+        spatial0.openWaitForAttachment(5000)
+        
+
+
+        
+    def setMotorVelocities(self, p0, p1):
+        
+        p0=p0*self.direction_pitch
+        p1=p1*self.direction_heading
+        
+        if p0>0.5:
+            p0=0.5
+        if p0<-0.5:
+            p0=-0.5
+        if p1>0.5:
+            p1=0.5
+        if p1<-0.5:
+            p1=-0.5
+
+
+        p0=p1+p0
+
+        self.bldcMotor0.setTargetVelocity(p0)
+        self.bldcMotor1.setTargetVelocity(p1)
+
+    def stop(self):
+        self.bldcMotor0.close()
+        self.bldcMotor1.close()
+        self.t.join()
+
+        
+    def direction(self):
+        ref_heading=self.ref_heading
+        ref_pitch=self.ref_pitch
+        
+        current_pitch=self.pitch
+        current_heading=self.heading
+        
+        if current_pitch < -75:
+            if self.ref_pitch <0:   
+                self.direction_pitch=1
+            else:
+                self.direction_pitch=0
+        elif current_pitch > 75:
+            if self.ref_pitch >0:   
+                self.direction_pitch=0
+            else:
+                self.direction_pitch=-1
+                
+        elif current_pitch >ref_pitch:
+            self.direction_pitch = -1
+        elif current_pitch <ref_pitch:
+            self.direction_pitch = 1
+            
+        if current_heading - ref_heading <0:
+            self.direction_heading =-1
+        else:
+            self.direction_heading =1
+            
+
+        
+        
+    def state(self):
+        x1=random.uniform(0.01, 0.001)
+        if self.ref_pitch < -50:
+            self.ref_pitch=self.ref_pitch+x1
+        elif self.ref_pitch > 50:
+            self.ref_pitch=self.ref_pitch-x1
+            
+        x2=random.uniform(0.01, 0.001)
+        if self.ref_heading < -100:
+            self.ref_heading=self.ref_heading+x2
+        elif self.ref_heading > 100:
+            self.ref_heading=self.ref_heading-x2
+            
+    def rewardd(self):
+        self.reward=0
+        if abs(self.ref_heading-self.heading)<3:
+            self.reward=self.reward+1
+        else:
+            self.reward=self.reward-1
+        if abs(self.ref_pitch-self.pitch)<3:
+            self.reward=self.reward+1
+        else:
+            self.reward=self.reward-1 
+            
+            
+    def action(self,p0,p1):
+        
+        self.p0=p0
+        self.p1=p1
+        self.direction()
+        self.setMotorVelocities(p0, p1)
+        time.sleep(0.01)
+        self.rewardd()
+        self.state()
+        
+        err_pitch=abs(self.ref_pitch-self.pitch)
+        err_heading=abs(self.ref_heading-self.heading)
+        
+        return err_pitch, err_heading,self.reward
+
+    
+env=Env()
+
+env.ref_heading=-55
+env.ref_pitch=-30
+
+while True:
+
+        err_pitch, err_heading,reward=env.action(0.3,0.3)
+        if  -35 <= env.pitch <= -25 and -60 <= env.heading <= -50 :
+            break
+print("done")            
+env.stop()
